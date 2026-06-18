@@ -58,22 +58,24 @@ gtk-update-icon-cache -f ~/.local/share/icons/hicolor
 ### Adaptive sizing algorithm
 
 The tool automatically adjusts the target size for each icon based on its
-**content shape** and **fill density**:
+**actual non-transparent content area**, **aspect ratio**, and **density**:
 
-- Wide or tall icons (e.g. folder, terminal) get more target area so they don't
-  look smaller than square icons.
-- Dense square icons (e.g. WeChat, WPS) get slightly less target area so they
-  don't look too large.
-- `TARGET_CONTENT_RATIO = 0.95` is the baseline for square-ish icons.
+- **Circular/irregular icons** are scaled up relative to their bounding box so
+  they don't look smaller than square icons.
+- **Wide or tall icons** (e.g. folder, terminal) get more target area so they
+  don't look smaller than square icons.
+- **Dense square icons** (e.g. WeChat, WPS) get slightly less target area so
+  they don't look too large.
+- `TARGET_CONTENT_RATIO = 0.90` is the baseline for square-ish icons.
 
 Tunable parameters at the top of `src/icon_normalizer/normalize.py`:
 
 ```python
-TARGET_CONTENT_RATIO = 0.95  # baseline side ratio for square-ish icons
-MIN_CONTENT_RATIO = 0.80     # lower bound
+TARGET_CONTENT_RATIO = 0.90  # baseline side ratio for square-ish icons
+MIN_CONTENT_RATIO = 0.75     # lower bound
 MAX_CONTENT_RATIO = 1.00     # upper bound (touch canvas edge)
-ASPECT_AREA_BOOST = 0.50     # area boost for wide/tall icons
-DENSITY_AREA_PENALTY = 0.15  # area penalty for dense square icons
+ASPECT_AREA_BOOST = 0.35     # extra area for wide/tall icons
+DENSITY_AREA_PENALTY = 0.12  # area penalty for very dense icons
 ```
 
 Then re-run `icon-normalizer`.

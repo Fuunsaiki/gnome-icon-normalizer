@@ -15,11 +15,11 @@ WORK_DIR = HOME / '.local/share/icon-normalizer'
 APPS_JSON = WORK_DIR / 'apps.json'
 OUT_ICON_DIR = HOME / '.local/share/icons/hicolor/512x512/apps'
 OUT_DESKTOP_DIR = HOME / '.local/share/applications'
-TARGET_CONTENT_RATIO = 0.95  # baseline side ratio for square-ish icons
-MIN_CONTENT_RATIO = 0.80       # lower bound for dense square icons
+TARGET_CONTENT_RATIO = 0.90  # baseline side ratio for square-ish icons
+MIN_CONTENT_RATIO = 0.75       # lower bound for dense square icons
 MAX_CONTENT_RATIO = 1.00       # upper bound for very wide/tall icons
-ASPECT_AREA_BOOST = 0.50       # how much extra area wide/tall icons get
-DENSITY_AREA_PENALTY = 0.15    # how much area dense square icons lose
+ASPECT_AREA_BOOST = 0.35       # extra area for wide/tall icons
+DENSITY_AREA_PENALTY = 0.12    # area penalty for very dense icons
 CANVAS_SIZE = 512
 
 ICON_SEARCH_PATHS = [
@@ -145,39 +145,22 @@ def compute_content_bbox(img, alpha_threshold=10):
     return bbox
 
 
-def compute_target_ratio(content_w, content_h, canvas_size):
-    """Compute an adaptive target ratio based on content shape and density.
-
-    The goal is perceptual size consistency:
-
-    - Wide or tall icons get more target area so they don't look small next to
-      square icons.
-    - Dense square icons get slightly less target area so they don't look too
-      large.
-
-    The returned ratio applies to the content's larger dimension.
-    """
-    aspect_ratio = max(content_w, content_h) / max(min(content_w, content_h), 1)
-    content_area = content_w * content_h
-    canvas_area = canvas_size * canvas_size
-    density = min(content_area / canvas_area, 1.0)
-
-    # Target area as a fraction of the canvas area
-    base_area_ratio = TARGET_CONTENT_RATIO ** 2
-    shape_factor = 1 + (aspect_ratio - 1) * ASPECT_AREA_BOOST
-    density_factor = 1 - density * DENSITY_AREA_PENALTY
-    target_area_ratio = base_area_ratio * shape_factor * density_factor
-
-    # Convert target area back to a ratio for the larger dimension.
-    # For a shape with aspect_ratio, if the larger side is R * canvas_size,
-    # area = (R * canvas_size)^2 / aspect_ratio.
-    ratio = (target_area_ratio * aspect_ratio) ** 0.5
-
-    return max(MIN_CONTENT_RATIO, min(MAX_CONTENT_RATIO, ratio))
+def compute_content_area(img, bbox):
+    """Return the number of non-transparent pixels inside the bounding box."""
+    alpha = img.crop(bbox).split()[-1]
+    # Histogram index = alpha value; count pixels with alpha > 10.
+    hist = alpha.histogram()
+    return sum(hist[11:])
 
 
 def normalize_icon(src_path, dst_path):
-    """Create a normalized icon with consistent visual size."""
+    """Create a normalized icon with consistent visual size.
+
+    Instead of scaling to a fixed bounding-box ratio, we scale so that the
+    actual non-transparent content area (plus aspect and density corrections)
+    is consistent across icons. This makes circular icons look the same size
+    as square ones, and wide/tall icons don't look small.
+    """
     img = load_icon(src_path)
     if img.size != (CANVAS_SIZE, CANVAS_SIZE):
         img = img.resize((CANVAS_SIZE, CANVAS_SIZE), Image.LANCZOS)
@@ -191,11 +174,31 @@ def normalize_icon(src_path, dst_path):
         return {'src': src_path, 'dst': dst_path, 'bbox': bbox, 'scale': 1.0}
 
     content = img.crop(bbox)
-    target_ratio = compute_target_ratio(content_w, content_h, CANVAS_SIZE)
-    target_content_size = int(CANVAS_SIZE * target_ratio)
-    scale = target_content_size / max(content_w, content_h)
+    content_area = compute_content_area(img, bbox)
+    aspect_ratio = max(content_w, content_h) / max(min(content_w, content_h), 1)
+
+    # Target content area on the canvas.
+    # - Wide/tall icons get more area so they don't look small.
+    # - Very dense icons get slightly less area so they don't dominate.
+    base_area_ratio = TARGET_CONTENT_RATIO ** 2
+    shape_factor = 1 + (aspect_ratio - 1) * ASPECT_AREA_BOOST
+    density_factor = 1 - (content_area / (CANVAS_SIZE ** 2)) * DENSITY_AREA_PENALTY
+    target_area = (CANVAS_SIZE ** 2) * base_area_ratio * shape_factor * density_factor
+
+    # Scale so content_area * scale^2 == target_area.
+    scale = (target_area / max(content_area, 1)) ** 0.5
+
     new_w = max(1, int(content_w * scale))
     new_h = max(1, int(content_h * scale))
+
+    # Cap the larger dimension to MAX_CONTENT_RATIO of the canvas.
+    larger_dim = max(new_w, new_h)
+    max_dim = int(CANVAS_SIZE * MAX_CONTENT_RATIO)
+    if larger_dim > max_dim:
+        cap_scale = max_dim / larger_dim
+        new_w = max(1, int(new_w * cap_scale))
+        new_h = max(1, int(new_h * cap_scale))
+
     scaled = content.resize((new_w, new_h), Image.LANCZOS)
 
     canvas = Image.new('RGBA', (CANVAS_SIZE, CANVAS_SIZE), (0, 0, 0, 0))
@@ -206,6 +209,7 @@ def normalize_icon(src_path, dst_path):
     Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dst_path)
 
+    target_ratio = max(new_w, new_h) / CANVAS_SIZE
     return {
         'src': str(src_path),
         'dst': str(dst_path),
@@ -213,6 +217,7 @@ def normalize_icon(src_path, dst_path):
         'scale': scale,
         'new_size': (new_w, new_h),
         'target_ratio': target_ratio,
+        'content_area_ratio': content_area / (CANVAS_SIZE ** 2),
     }
 
 
