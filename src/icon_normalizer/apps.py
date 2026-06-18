@@ -49,6 +49,12 @@ def is_visible(data):
         return False
     if data.get('Type', '') != 'Application':
         return False
+    # Terminal-only apps (like TeXInfo) should not appear in the app grid.
+    if data.get('Terminal', '').lower() == 'true':
+        return False
+    categories = [c.strip() for c in data.get('Categories', '').split(';') if c.strip()]
+    if 'ConsoleOnly' in categories:
+        return False
     only_show = data.get('OnlyShowIn', '')
     if only_show and 'GNOME' not in only_show.split(';'):
         return False
