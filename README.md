@@ -55,16 +55,26 @@ gtk-update-icon-cache -f ~/.local/share/icons/hicolor
 
 > On Wayland you must log out and back in; `Alt+F2 r` does not work.
 
-### Adjust icon size
+### Adaptive sizing algorithm
 
-Edit the ratio in `src/icon_normalizer/normalize.py`:
+The tool automatically adjusts the target size for each icon based on its
+**content shape** and **fill density**:
+
+- Wide or tall icons (e.g. folder, terminal) get more target area so they don't
+  look smaller than square icons.
+- Dense square icons (e.g. WeChat, WPS) get slightly less target area so they
+  don't look too large.
+- `TARGET_CONTENT_RATIO = 0.95` is the baseline for square-ish icons.
+
+Tunable parameters at the top of `src/icon_normalizer/normalize.py`:
 
 ```python
-TARGET_CONTENT_RATIO = 0.95  # content occupies 95% of canvas
+TARGET_CONTENT_RATIO = 0.95  # baseline side ratio for square-ish icons
+MIN_CONTENT_RATIO = 0.80     # lower bound
+MAX_CONTENT_RATIO = 1.00     # upper bound (touch canvas edge)
+ASPECT_AREA_BOOST = 0.50     # area boost for wide/tall icons
+DENSITY_AREA_PENALTY = 0.15  # area penalty for dense square icons
 ```
-
-- Higher value → larger, clearer icon content (smaller margins).
-- Lower value → smaller content, larger margins.
 
 Then re-run `icon-normalizer`.
 
